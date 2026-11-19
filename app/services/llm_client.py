@@ -88,15 +88,18 @@ def ask_llm(question: str, conversation_history: list) -> str:
     tool_round = 0
 
     while tool_round < max_tool_rounds:
-
-        response = client.models.generate_content(
-            model=model_name,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                tools=[calculator_tool]
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    tools=[calculator_tool]
+                )
+            
             )
-        )
-
+        except Exception as e:
+            print(f"Error during LLM request: {e}")
+            return "Sorry, I couldn't process your request right now. Please try again."
         # No tool requested: return the final answer
         if not response.function_calls:
             

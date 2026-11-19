@@ -66,63 +66,66 @@ calculator_tool = types.Tool(
 )
 
 
+
 def ask_llm(question: str) -> str:
 
-    # 2. Send the question and tool description to Gemini
     user_message = types.Content(
         role="user",
         parts=[types.Part.from_text(text=question)]
     )
 
-    response = client.models.generate_content(
-        model=model_name,
-        contents=user_message,
-        config=types.GenerateContentConfig(
-            tools=[calculator_tool]
+    # Keep the complete conversation history
+    contents = [user_message]
+
+    # Prevent the agent from running forever
+    max_tool_rounds = 5
+    tool_round = 0
+
+    while tool_round < max_tool_rounds:
+
+        response = client.models.generate_content(
+            model=model_name,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                tools=[calculator_tool]
+            )
         )
-    )
 
-    # 3. Check whether Gemini requested a tool
-    if not response.function_calls:
-        return response.text or "No response generated."
+        # No tool requested: return the final answer
+        if not response.function_calls:
+            return response.text or "No response generated."
 
-    function_call = response.function_calls[0]
+        # Preserve Gemini's response in conversation history
+        contents.append(response.candidates[0].content)
 
-    print(f"\nGemini requested tool: {function_call.name}")
-    print(f"Arguments: {function_call.args}")
+        # Execute every requested tool
+        for function_call in response.function_calls:
 
-    # 4. Python executes the requested function
-    if function_call.name == "multiply":
-        result = multiply(**function_call.args)
-    elif function_call.name == "add":
-        result = add(**function_call.args)
-    else:
-        raise ValueError("Unknown tool requested")
+            print(f"\nGemini requested tool: {function_call.name}")
+            print(f"Arguments: {function_call.args}")
 
-    print(f"Python tool result: {result}")
+            tool_function = tool_registry.get(function_call.name)
 
-    # 5. Send the result back to Gemini
-    function_response = types.Part.from_function_response(
-        name=function_call.name,
-        response={"result": result}
-    )
+            if tool_function is None:
+                raise ValueError("Unknown tool requested")
 
-    tool_message = types.Content(
-        role="user",
-        parts=[function_response]
-    )
+            result = tool_function(**function_call.args)
 
-    final_response = client.models.generate_content(
-        model=model_name,
-        contents=[
-            user_message,
-            response.candidates[0].content,
-            tool_message
-        ],
-        config=types.GenerateContentConfig(
-            tools=[calculator_tool]
-        )
-    )
+            print(f"Python tool result: {result}")
 
-    # 6. Return Gemini's final answer
-    return final_response.text or "No final response generated."
+            function_response = types.Part.from_function_response(
+                name=function_call.name,
+                response={"result": result}
+            )
+
+            tool_message = types.Content(
+                role="user",
+                parts=[function_response]
+            )
+
+            contents.append(tool_message)
+
+        tool_round += 1
+
+    return "Maximum tool execution limit reached."
+

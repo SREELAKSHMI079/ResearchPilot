@@ -7,6 +7,11 @@ from google.genai import types
 
 from app.tools.calculator import add, multiply
 
+tool_registry = {
+    "multiply": multiply,
+    "add": add
+}
+
 load_dotenv()
 
 api_key = os.getenv("GEMINI_API_KEY")

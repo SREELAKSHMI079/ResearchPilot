@@ -67,7 +67,7 @@ calculator_tool = types.Tool(
 
 
 
-def ask_llm(question: str) -> str:
+def ask_llm(question: str, conversation_history: list) -> str:
 
     user_message = types.Content(
         role="user",
@@ -75,7 +75,13 @@ def ask_llm(question: str) -> str:
     )
 
     # Keep the complete conversation history
-    contents = [user_message]
+    contents = conversation_history+[user_message]
+    agent_state = {
+    "question": question,
+    "tool_calls": [],
+    "tool_results": [],
+    "steps_completed": 0
+}
 
     # Prevent the agent from running forever
     max_tool_rounds = 5
@@ -93,10 +99,18 @@ def ask_llm(question: str) -> str:
 
         # No tool requested: return the final answer
         if not response.function_calls:
-            return response.text or "No response generated."
+            
+            final_answer = response.text or "No response generated."
 
-        # Preserve Gemini's response in conversation history
-        contents.append(response.candidates[0].content)
+            contents.append(response.candidates[0].content)
+
+            conversation_history.clear()
+            conversation_history.extend(contents)
+
+            return final_answer
+
+        
+        
 
         # Execute every requested tool
         for function_call in response.function_calls:
@@ -110,6 +124,11 @@ def ask_llm(question: str) -> str:
                 raise ValueError("Unknown tool requested")
 
             result = tool_function(**function_call.args)
+            agent_state["tool_calls"].append(function_call.name)
+
+            agent_state["tool_results"].append(result)
+
+            agent_state["steps_completed"] += 1
 
             print(f"Python tool result: {result}")
 
@@ -126,6 +145,7 @@ def ask_llm(question: str) -> str:
             contents.append(tool_message)
 
         tool_round += 1
-
+    print("\n--- Agent State ---")
+    print(agent_state)
     return "Maximum tool execution limit reached."
 

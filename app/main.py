@@ -3,13 +3,20 @@ from app.services.llm_client import ask_llm
 
 def main():
     print("Welcome to ResearchPilot!")
+    print("Type 'exit' to quit.\n")
 
-    question = input("\nAsk ResearchPilot something: ")
+    conversation_history = []
 
-    answer = ask_llm(question)
+    while True:
+        question = input("You: ")
 
-    print("\nGemini's Response:")
-    print(answer)
+        if question.lower() == "exit":
+            print("Goodbye!")
+            break
+
+        answer = ask_llm(question, conversation_history)
+
+        print("\nResearchPilot:", answer, "\n")
 
 
 if __name__ == "__main__":

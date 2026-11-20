@@ -1,5 +1,6 @@
 
 import os
+import time
 
 from dotenv import load_dotenv
 from google import genai
@@ -68,7 +69,7 @@ calculator_tool = types.Tool(
 
 
 def ask_llm(question: str, conversation_history: list) -> str:
-
+    start_time = time.time()
     user_message = types.Content(
         role="user",
         parts=[types.Part.from_text(text=question)]
@@ -80,28 +81,39 @@ def ask_llm(question: str, conversation_history: list) -> str:
     "question": question,
     "tool_calls": [],
     "tool_results": [],
-    "steps_completed": 0
+    "steps_completed": 0,
+    "agent_rounds": 0
 }
-
-    # Prevent the agent from running forever
     max_tool_rounds = 5
     tool_round = 0
 
     while tool_round < max_tool_rounds:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    tools=[calculator_tool]
+    # Prevent the agent from running forever
+        max_retries = 5
+
+        for _ in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=types.GenerateContentConfig(
+                        tools=[calculator_tool]
                 )
             
-            )
-        except Exception as e:
-            print(f"Error during LLM request: {e}")
-            return "Sorry, I couldn't process your request right now. Please try again."
+                )
+                break
+            except Exception as e:
+                print(f"Error during LLM request: {e}")
+                return "Sorry, I couldn't process your request right now. Please try again."
         # No tool requested: return the final answer
+        agent_state["agent_rounds"] += 1
         if not response.function_calls:
+            print("\n--- Agent Execution Summary ---")
+            print(f"Agent rounds: {agent_state['agent_rounds']}")
+            print(f"Tools used: {agent_state['tool_calls']}")
+            print(f"Steps completed: {agent_state['steps_completed']}")
+            duration = time.time() - start_time
+            print(f"Execution time: {duration:.2f} seconds")
             
             final_answer = response.text or "No response generated."
 
@@ -120,24 +132,31 @@ def ask_llm(question: str, conversation_history: list) -> str:
 
             print(f"\nGemini requested tool: {function_call.name}")
             print(f"Arguments: {function_call.args}")
-
+            print("Requested tool:", function_call.name)
             tool_function = tool_registry.get(function_call.name)
 
             if tool_function is None:
                 raise ValueError("Unknown tool requested")
-
-            result = tool_function(**function_call.args)
+            try:
+                result = tool_function(**function_call.args)
+                tool_output = {"result": result}
+                print(f"Python tool result: {result}")
+            except Exception as e:
+                tool_output = {"error": str(e)}
+                print(f"Error occurred while executing tool: {e}")
+                
             agent_state["tool_calls"].append(function_call.name)
 
-            agent_state["tool_results"].append(result)
+            agent_state["tool_results"].append(tool_output)
 
             agent_state["steps_completed"] += 1
+            
 
-            print(f"Python tool result: {result}")
+            
 
             function_response = types.Part.from_function_response(
                 name=function_call.name,
-                response={"result": result}
+                response=tool_output
             )
 
             tool_message = types.Content(
